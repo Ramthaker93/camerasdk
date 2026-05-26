@@ -48,5 +48,6 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    implementation(project(":camerasdk"))
+    //implementation(project(":camerasdk"))
+    implementation("com.github.Ramthaker93:camerasdk:1.0.0")
 }

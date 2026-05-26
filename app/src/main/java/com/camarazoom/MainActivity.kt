@@ -1,5 +1,7 @@
 package com.camarazoom
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -11,10 +13,12 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.cesc.camerasdk.MeterCaptureActivity
@@ -23,15 +27,13 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlin.jvm.java
-
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var cameraLauncher: ActivityResultLauncher<Intent>
+    private lateinit var permissionLauncher: ActivityResultLauncher<String>
 
     private var currentPhotoPath = ""
 
@@ -52,26 +54,42 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        setupCameraLauncher()
+        setupLaunchers()
     }
 
-    // ✅ Camera launcher setup
-    private fun setupCameraLauncher() {
-
+    private fun setupLaunchers() {
         cameraLauncher =
             registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-
                 if (result.resultCode == RESULT_OK) {
                     processCapturedImage()
                 } else {
                     Log.e("Camera", "Capture cancelled")
                 }
             }
+
+        permissionLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (granted) {
+                    prepareAndLaunchCamera()
+                } else {
+                    Toast.makeText(
+                        this,
+                        "Camera permission is required to capture images",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
     }
 
     // ✅ Capture button click
     fun onbtntakePicture(view: View) {
-        prepareAndLaunchCamera()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            prepareAndLaunchCamera()
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     // ✅ Prepare camera
@@ -82,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         ).format(Date())
         val fileName = "kno_$timeStamp.jpg"
         currentPhotoPath = fileName
+
         val intent = Intent(this, MeterCaptureActivity::class.java)
         intent.putExtra("FILE_NAME", fileName)
         cameraLauncher.launch(intent)
@@ -106,7 +125,7 @@ class MainActivity : AppCompatActivity() {
             // TODO use rotatedBitmap
             Log.e("Camera", "Image processed successfully")
 
-            if (storeCameraPhotoInSDCard(bitmap, currentPhotoPath)) {
+            if (storeCameraPhotoInSDCard(rotatedBitmap ?: bitmap, currentPhotoPath)) {
                 val mBitmap: Bitmap? = getImageFileFromSDCard("dis_" + currentPhotoPath)
                 if (mBitmap != null) {
                     val targetImageView = findViewById<ImageView>(R.id.targetImageView)
@@ -175,7 +194,8 @@ class MainActivity : AppCompatActivity() {
     private fun storeCameraPhotoInSDCard(bitmap: Bitmap, currentDate: String): Boolean {
         val timeStamp1 = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
         val timeStamp = "." + timeStamp1
-        val myDirectory = File(getExternalMediaDirs()[0], timeStamp)
+        @Suppress("DEPRECATION")
+        val myDirectory = File(getExternalMediaDirs().firstOrNull() ?: getExternalFilesDir(null) ?: filesDir, timeStamp)
 
         if (!myDirectory.exists()) {
             myDirectory.mkdirs()
@@ -185,7 +205,6 @@ class MainActivity : AppCompatActivity() {
         val displayFile = File(myDirectory, "dis_" + currentDate)
 
         try {
-            outputFile.setReadOnly()
             val fileOutputStream = FileOutputStream(outputFile)
 
 
@@ -193,7 +212,7 @@ class MainActivity : AppCompatActivity() {
             val scaled = Bitmap.createScaledBitmap(bitmap, 1024, 1536, true)
 
             val sdf = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault())
-            val dateTime = sdf.format(Calendar.getInstance().getTime())
+            val dateTime = sdf.format(Date())
 
             // 1. Save Original Scaled Image with Watermark
             val cs = Canvas(scaled)
@@ -204,44 +223,37 @@ class MainActivity : AppCompatActivity() {
             val height = tPaint.measureText("yY")
             cs.drawText(dateTime, 20f, height + cs.getHeight() - 90f, tPaint)
 
-            Bitmap.createBitmap(scaled).compress(Bitmap.CompressFormat.JPEG, 25, fileOutputStream)
+            scaled.compress(Bitmap.CompressFormat.JPEG, 25, fileOutputStream)
             fileOutputStream.flush()
             fileOutputStream.close()
+            outputFile.setReadOnly()
 
             // 2. Save Cropped Display Image ("dis_")
-            // The 'scaled' bitmap is wide-angle (1.0x).
-            // The user aligned the display in an 80% box while seeing a 1.5x zoomed preview.
-            // We crop the area corresponding to that box: (80% / 1.5) of the full image width.
-            val zoomFactor = 2.0f
-            val boxWidthRatio = 0.8f
+            // CameraX setZoomRatio() applies hardware zoom to BOTH preview and capture.
+            // The captured image is already at the hardware zoom level (1x or 2x).
+            // Crop the overlay box region directly — no second zoom factor needed.
+            // Overlay: 80% of preview width, 50% height ratio, top at (h - boxH) / 3.
+            val imageWidth = scaled.width
+            val imageHeight = scaled.height
 
-            val imageWidth = scaled.getWidth()
-            val imageHeight = scaled.getHeight()
-
-            // Step 1: visible region after fake zoom
-            val visibleWidth = (imageWidth / zoomFactor).toInt()
-            val visibleHeight = (imageHeight / zoomFactor).toInt()
-
-            val visibleStartX = (imageWidth - visibleWidth) / 2
-            val visibleStartY = (imageHeight - visibleHeight) / 2
-
-            // Step 2: overlay box inside visible region
-            val cropWidth = (visibleWidth * boxWidthRatio).toInt()
+            val cropWidth = (imageWidth * 0.8f).toInt()
             val cropHeight = (cropWidth * 0.5f).toInt()
+            val cropStartX = (imageWidth - cropWidth) / 2
+            // Mirror ViewfinderOverlay formula: top = (viewH - boxH) / 3
+            val cropStartY = (imageHeight - cropHeight) / 3
 
-            // Step 3: match overlay positiong
-            val cropStartX = visibleStartX + (visibleWidth - cropWidth) / 2
-            val boxHeightRatio = 0.5f
-            val verticalBias = (1f - boxHeightRatio) / 3f
+            // Clamp to prevent out-of-bounds on any device or image size
+            val safeCropStartX = cropStartX.coerceIn(0, imageWidth - 1)
+            val safeCropStartY = cropStartY.coerceIn(0, imageHeight - 1)
+            val safeCropWidth = cropWidth.coerceAtMost(imageWidth - safeCropStartX)
+            val safeCropHeight = cropHeight.coerceAtMost(imageHeight - safeCropStartY)
 
-            val cropStartY = visibleStartY + (visibleHeight * verticalBias).toInt()
-            // Step 4: crop
             val cropped = Bitmap.createBitmap(
                 scaled,
-                cropStartX,
-                cropStartY,
-                cropWidth,
-                cropHeight
+                safeCropStartX,
+                safeCropStartY,
+                safeCropWidth,
+                safeCropHeight
             )
 
             val displayOutputStream = FileOutputStream(displayFile)
@@ -266,9 +278,9 @@ class MainActivity : AppCompatActivity() {
             Locale.getDefault()
         ).format(Date())
 
-        val imageFile = File(
-            "${getExternalMediaDirs()[0]}/$folderName/$filename"
-        )
+        @Suppress("DEPRECATION")
+        val mediaDir = getExternalMediaDirs().firstOrNull() ?: getExternalFilesDir(null) ?: filesDir
+        val imageFile = File("${mediaDir}/$folderName/$filename")
 
         return try {
 

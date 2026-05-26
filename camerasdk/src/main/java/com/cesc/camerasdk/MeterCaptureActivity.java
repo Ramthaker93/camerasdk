@@ -1,9 +1,15 @@
 package com.cesc.camerasdk;
+
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
@@ -22,10 +28,27 @@ import java.util.concurrent.Executors;
 
 public class MeterCaptureActivity extends AppCompatActivity {
     private ImageCapture imageCapture;
+    private Camera camera;
     private File outputDirectory;
     private ExecutorService cameraExecutor;
     private String targetFileName;
-    private static final float DEFAULT_ZOOM_RATIO = 1.5f;
+    private float currentZoom = 2.0f;
+    private float minZoom = 1.0f;
+    private float maxZoom = 10.0f;
+    private boolean zoomInitialized = false;
+    private TextView zoomToggleView;
+
+    private final ActivityResultLauncher<String> permissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    startCamera();
+                } else {
+                    Toast.makeText(this,
+                            "Camera permission is required to capture images",
+                            Toast.LENGTH_LONG).show();
+                    finish();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,11 +64,18 @@ public class MeterCaptureActivity extends AppCompatActivity {
 
         outputDirectory = getExternalFilesDir(null);
         cameraExecutor = Executors.newSingleThreadExecutor();
+        zoomToggleView = findViewById(R.id.zoomToggle);
 
-        startCamera();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED) {
+            startCamera();
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA);
+        }
 
         ImageView captureButton = findViewById(R.id.captureButton);
         captureButton.setOnClickListener(v -> takePhoto());
+        zoomToggleView.setOnClickListener(v -> toggleZoom());
     }
 
     private void startCamera() {
@@ -63,14 +93,21 @@ public class MeterCaptureActivity extends AppCompatActivity {
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build();
 
-                CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
-
                 cameraProvider.unbindAll();
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+                camera = cameraProvider.bindToLifecycle(
+                        this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture);
 
-                // Apply zoom to preview only (UI scaling)
-                previewView.setScaleX(DEFAULT_ZOOM_RATIO);
-                previewView.setScaleY(DEFAULT_ZOOM_RATIO);
+                // Observe ZoomState to learn device limits before applying zoom.
+                // ZoomState may not be available synchronously after bindToLifecycle.
+                camera.getCameraInfo().getZoomState().observe(this, zoomState -> {
+                    if (zoomState == null) return;
+                    minZoom = zoomState.getMinZoomRatio();
+                    maxZoom = zoomState.getMaxZoomRatio();
+                    if (!zoomInitialized) {
+                        zoomInitialized = true;
+                        applyZoom(currentZoom);
+                    }
+                });
 
             } catch (ExecutionException | InterruptedException e) {
                 Toast.makeText(this, "Failed to start camera", Toast.LENGTH_SHORT).show();
@@ -78,12 +115,27 @@ public class MeterCaptureActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
+    private void applyZoom(float desired) {
+        if (camera == null) return;
+        currentZoom = Math.max(minZoom, Math.min(maxZoom, desired));
+        camera.getCameraControl().setZoomRatio(currentZoom);
+        updateZoomLabel();
+    }
+
+    private void updateZoomLabel() {
+        if (zoomToggleView == null) return;
+        zoomToggleView.setText(currentZoom > minZoom + 0.1f ? "2X" : "1X");
+    }
+
     private void takePhoto() {
-        if (imageCapture == null) return;
+        if (imageCapture == null) {
+            Toast.makeText(this, "Camera not ready", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         File photoFile = new File(outputDirectory, targetFileName);
-
-        ImageCapture.OutputFileOptions outputOptions = new ImageCapture.OutputFileOptions.Builder(photoFile).build();
+        ImageCapture.OutputFileOptions outputOptions =
+                new ImageCapture.OutputFileOptions.Builder(photoFile).build();
 
         imageCapture.takePicture(
                 outputOptions,
@@ -92,16 +144,26 @@ public class MeterCaptureActivity extends AppCompatActivity {
                     @Override
                     public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                         Intent resultIntent = new Intent();
+                        resultIntent.putExtra("ZOOM_LEVEL", currentZoom);
                         setResult(Activity.RESULT_OK, resultIntent);
                         finish();
                     }
 
                     @Override
                     public void onError(@NonNull ImageCaptureException exception) {
-                        Toast.makeText(MeterCaptureActivity.this, "Photo capture failed: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MeterCaptureActivity.this,
+                                "Photo capture failed: " + exception.getMessage(),
+                                Toast.LENGTH_SHORT).show();
                     }
                 }
         );
+    }
+
+    private void toggleZoom() {
+        if (camera == null) return;
+        float target2x = Math.min(2.0f, maxZoom);
+        float target = (currentZoom > minZoom + 0.1f) ? minZoom : target2x;
+        applyZoom(target);
     }
 
     @Override

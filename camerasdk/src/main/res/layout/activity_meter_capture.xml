@@ -26,6 +26,21 @@
         app:tint="@color/white" />
 
     <TextView
+        android:id="@+id/zoomToggle"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_marginBottom="40dp"
+        android:layout_marginEnd="24dp"
+        android:background="@android:color/darker_gray"
+        android:gravity="center"
+        android:text="2X"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/captureButton" />
+
+    <TextView
         android:id="@+id/instructionText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
