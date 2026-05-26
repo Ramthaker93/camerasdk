@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.ImageView;
-import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -36,7 +35,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
     private float minZoom = 1.0f;
     private float maxZoom = 10.0f;
     private boolean zoomInitialized = false;
-    private TextView zoomToggleView;
 
     private final ActivityResultLauncher<String> permissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -64,7 +62,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
 
         outputDirectory = getExternalFilesDir(null);
         cameraExecutor = Executors.newSingleThreadExecutor();
-        zoomToggleView = findViewById(R.id.zoomToggle);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -75,7 +72,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
 
         ImageView captureButton = findViewById(R.id.captureButton);
         captureButton.setOnClickListener(v -> takePhoto());
-        zoomToggleView.setOnClickListener(v -> toggleZoom());
     }
 
     private void startCamera() {
@@ -97,15 +93,15 @@ public class MeterCaptureActivity extends AppCompatActivity {
                 camera = cameraProvider.bindToLifecycle(
                         this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture);
 
-                // Observe ZoomState to learn device limits before applying zoom.
-                // ZoomState may not be available synchronously after bindToLifecycle.
+                // Apply 2x zoom clamped to device's supported range
                 camera.getCameraInfo().getZoomState().observe(this, zoomState -> {
                     if (zoomState == null) return;
                     minZoom = zoomState.getMinZoomRatio();
                     maxZoom = zoomState.getMaxZoomRatio();
                     if (!zoomInitialized) {
                         zoomInitialized = true;
-                        applyZoom(currentZoom);
+                        currentZoom = Math.max(minZoom, Math.min(maxZoom, 2.0f));
+                        camera.getCameraControl().setZoomRatio(currentZoom);
                     }
                 });
 
@@ -113,18 +109,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
                 Toast.makeText(this, "Failed to start camera", Toast.LENGTH_SHORT).show();
             }
         }, ContextCompat.getMainExecutor(this));
-    }
-
-    private void applyZoom(float desired) {
-        if (camera == null) return;
-        currentZoom = Math.max(minZoom, Math.min(maxZoom, desired));
-        camera.getCameraControl().setZoomRatio(currentZoom);
-        updateZoomLabel();
-    }
-
-    private void updateZoomLabel() {
-        if (zoomToggleView == null) return;
-        zoomToggleView.setText(currentZoom > minZoom + 0.1f ? "2X" : "1X");
     }
 
     private void takePhoto() {
@@ -157,13 +141,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
                     }
                 }
         );
-    }
-
-    private void toggleZoom() {
-        if (camera == null) return;
-        float target2x = Math.min(2.0f, maxZoom);
-        float target = (currentZoom > minZoom + 0.1f) ? minZoom : target2x;
-        applyZoom(target);
     }
 
     @Override
