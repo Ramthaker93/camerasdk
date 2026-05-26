@@ -228,19 +228,26 @@ class MainActivity : AppCompatActivity() {
             fileOutputStream.close()
             outputFile.setReadOnly()
 
-            // 2. Save Cropped Display Image ("dis_")
-            // CameraX setZoomRatio() applies hardware zoom to BOTH preview and capture.
-            // The captured image is already at the hardware zoom level (1x or 2x).
-            // Crop the overlay box region directly — no second zoom factor needed.
-            // Overlay: 80% of preview width, 50% height ratio, top at (h - boxH) / 3.
+            // 2. Save Cropped 2x Display Image ("dis_")
+            // Camera captures at 1x (original full image).
+            // Simulate 2x zoom by cropping the center 50% of the 1x image,
+            // then extract the overlay box region (80% wide, 50% ratio) from within it.
             val imageWidth = scaled.width
             val imageHeight = scaled.height
 
-            val cropWidth = (imageWidth * 0.8f).toInt()
+            // Center region visible at 2x zoom
+            val visibleWidth = imageWidth / 2
+            val visibleHeight = imageHeight / 2
+            val visibleStartX = (imageWidth - visibleWidth) / 2
+            val visibleStartY = (imageHeight - visibleHeight) / 2
+
+            // Overlay box inside the 2x visible region
+            val cropWidth = (visibleWidth * 0.8f).toInt()
             val cropHeight = (cropWidth * 0.5f).toInt()
-            val cropStartX = (imageWidth - cropWidth) / 2
-            // Mirror ViewfinderOverlay formula: top = (viewH - boxH) / 3
-            val cropStartY = (imageHeight - cropHeight) / 3
+            val cropStartX = visibleStartX + (visibleWidth - cropWidth) / 2
+            // Mirror ViewfinderOverlay formula: top = (visibleH - boxH) / 3
+            val verticalBias = (1f - cropHeight.toFloat() / visibleHeight) / 3f
+            val cropStartY = visibleStartY + (visibleHeight * verticalBias).toInt()
 
             // Clamp to prevent out-of-bounds on any device or image size
             val safeCropStartX = cropStartX.coerceIn(0, imageWidth - 1)

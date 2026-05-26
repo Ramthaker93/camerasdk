@@ -11,7 +11,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
@@ -27,14 +26,9 @@ import java.util.concurrent.Executors;
 
 public class MeterCaptureActivity extends AppCompatActivity {
     private ImageCapture imageCapture;
-    private Camera camera;
     private File outputDirectory;
     private ExecutorService cameraExecutor;
     private String targetFileName;
-    private float currentZoom = 2.0f;
-    private float minZoom = 1.0f;
-    private float maxZoom = 10.0f;
-    private boolean zoomInitialized = false;
 
     private final ActivityResultLauncher<String> permissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -75,7 +69,8 @@ public class MeterCaptureActivity extends AppCompatActivity {
     }
 
     private void startCamera() {
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
+                ProcessCameraProvider.getInstance(this);
 
         cameraProviderFuture.addListener(() -> {
             try {
@@ -85,25 +80,14 @@ public class MeterCaptureActivity extends AppCompatActivity {
                 PreviewView previewView = findViewById(R.id.previewView);
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
+                // Capture at 1x — original full image, no hardware zoom
                 imageCapture = new ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build();
 
                 cameraProvider.unbindAll();
-                camera = cameraProvider.bindToLifecycle(
+                cameraProvider.bindToLifecycle(
                         this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture);
-
-                // Apply 2x zoom clamped to device's supported range
-                camera.getCameraInfo().getZoomState().observe(this, zoomState -> {
-                    if (zoomState == null) return;
-                    minZoom = zoomState.getMinZoomRatio();
-                    maxZoom = zoomState.getMaxZoomRatio();
-                    if (!zoomInitialized) {
-                        zoomInitialized = true;
-                        currentZoom = Math.max(minZoom, Math.min(maxZoom, 2.0f));
-                        camera.getCameraControl().setZoomRatio(currentZoom);
-                    }
-                });
 
             } catch (ExecutionException | InterruptedException e) {
                 Toast.makeText(this, "Failed to start camera", Toast.LENGTH_SHORT).show();
@@ -128,7 +112,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
                     @Override
                     public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                         Intent resultIntent = new Intent();
-                        resultIntent.putExtra("ZOOM_LEVEL", currentZoom);
                         setResult(Activity.RESULT_OK, resultIntent);
                         finish();
                     }
