@@ -88,7 +88,7 @@ afterEvaluate {
 
                 artifactId = "camerasdk"
 
-                version = "1.0.1"
+                version = "1.0.2"
 
                 from(components["release"])
             }
