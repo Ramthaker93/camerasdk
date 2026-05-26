@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "camarazoom"
 include(":app")
+include(":camerasdk")
