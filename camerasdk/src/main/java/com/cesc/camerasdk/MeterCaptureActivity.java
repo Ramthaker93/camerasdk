@@ -1,5 +1,4 @@
 package com.cesc.camerasdk;
-
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
@@ -79,6 +78,11 @@ public class MeterCaptureActivity extends AppCompatActivity {
                 Preview preview = new Preview.Builder().build();
                 PreviewView previewView = findViewById(R.id.previewView);
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+                // Scale the PreviewView 2x so user sees a zoomed preview for alignment.
+                // Camera hardware captures at 1x — saved image is the full original.
+                previewView.setScaleX(2.0f);
+                previewView.setScaleY(2.0f);
 
                 // Capture at 1x — original full image, no hardware zoom
                 imageCapture = new ImageCapture.Builder()
