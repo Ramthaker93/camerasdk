@@ -30,7 +30,7 @@
         android:id="@+id/flashButton"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="40dp"
         android:layout_marginEnd="16dp"
         android:padding="8dp"
         android:src="@drawable/ic_flash_off"
