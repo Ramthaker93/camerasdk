@@ -10,6 +10,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
@@ -25,6 +26,8 @@ import java.util.concurrent.Executors;
 
 public class MeterCaptureActivity extends AppCompatActivity {
     private ImageCapture imageCapture;
+    private Camera camera;
+    private boolean isFlashOn = false;
     private File outputDirectory;
     private ExecutorService cameraExecutor;
     private String targetFileName;
@@ -65,6 +68,9 @@ public class MeterCaptureActivity extends AppCompatActivity {
 
         ImageView captureButton = findViewById(R.id.captureButton);
         captureButton.setOnClickListener(v -> takePhoto());
+
+        ImageView flashButton = findViewById(R.id.flashButton);
+        flashButton.setOnClickListener(v -> toggleFlash(flashButton));
     }
 
     private void startCamera() {
@@ -74,23 +80,19 @@ public class MeterCaptureActivity extends AppCompatActivity {
         cameraProviderFuture.addListener(() -> {
             try {
                 ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-
                 Preview preview = new Preview.Builder().build();
                 PreviewView previewView = findViewById(R.id.previewView);
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
-
                 // Scale the PreviewView 2x so user sees a zoomed preview for alignment.
                 // Camera hardware captures at 1x — saved image is the full original.
                 previewView.setScaleX(2.0f);
                 previewView.setScaleY(2.0f);
-
                 // Capture at 1x — original full image, no hardware zoom
                 imageCapture = new ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build();
-
                 cameraProvider.unbindAll();
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                         this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture);
 
             } catch (ExecutionException | InterruptedException e) {
@@ -108,7 +110,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
         File photoFile = new File(outputDirectory, targetFileName);
         ImageCapture.OutputFileOptions outputOptions =
                 new ImageCapture.OutputFileOptions.Builder(photoFile).build();
-
         imageCapture.takePicture(
                 outputOptions,
                 ContextCompat.getMainExecutor(this),
@@ -119,7 +120,6 @@ public class MeterCaptureActivity extends AppCompatActivity {
                         setResult(Activity.RESULT_OK, resultIntent);
                         finish();
                     }
-
                     @Override
                     public void onError(@NonNull ImageCaptureException exception) {
                         Toast.makeText(MeterCaptureActivity.this,
@@ -130,9 +130,19 @@ public class MeterCaptureActivity extends AppCompatActivity {
         );
     }
 
+    private void toggleFlash(ImageView flashButton) {
+        if (camera == null) return;
+        isFlashOn = !isFlashOn;
+        camera.getCameraControl().enableTorch(isFlashOn);
+        flashButton.setImageResource(isFlashOn ? R.drawable.ic_flash_on : R.drawable.ic_flash_off);
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (camera != null) {
+            camera.getCameraControl().enableTorch(false);
+        }
         cameraExecutor.shutdown();
     }
 }
